@@ -2,71 +2,134 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class OTPPage extends StatefulWidget {
-  const OTPPage({super.key});
+  final String email; 
 
+  final String name;
+  final String password;// Accept dynamic email as a parameter
+
+  const OTPPage({
+    required this.email,
+    required this.name,
+    required this.password,
+    Key? key,
+  }) : super(key: key);
   @override
   State<OTPPage> createState() => _OTPPageState();
 }
 
 class _OTPPageState extends State<OTPPage> {
   final List<TextEditingController> _otpControllers = List.generate(
-    4,
+    6, // Handle 6-digit OTP
     (index) => TextEditingController(),
   );
   final List<FocusNode> _focusNodes = List.generate(
-    4,
+    6,
     (index) => FocusNode(),
   );
 
   String? _errorMessage;
 
-  /// Verifies the OTP entered by the user.
-  ///
-  /// If any of the fields are empty, sets [_errorMessage] to
-  /// 'Please enter all digits'.
-  ///
-  /// If the OTP is incorrect, sets [_errorMessage] to
-  /// 'Incorrect verification code', clears all fields, focuses
-  /// back to the first field and returns.
-  ///
-  /// If the OTP is correct, clears [_errorMessage], navigates to
-  /// the home page.
-  void _verifyOTP() {
-    String otp = _otpControllers.map((controller) => controller.text).join();
-    
-    // Check if any fields are empty
-    if (otp.length < 4) {
-      setState(() {
-        _errorMessage = 'Please enter all digits';
-      });
-      return;
-    }
+  /// Save token in local storage
+  void saveToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    prefs.setString('auth_token', token);
+  }
 
-    // Here you would typically verify with your backend
-    // For demo, let's assume correct OTP is "1234"
-    if (otp != "1234") {
-      setState(() {
-        _errorMessage = 'Incorrect verification code';
-      });
-      // Optional: Clear all fields on wrong input
-      for (var controller in _otpControllers) {
-        controller.clear();
+  /// Verify OTP through API call
+ Future<Map<String, dynamic>> verifyOtp(String email, String otp, String name, String password) async {
+  final url = Uri.parse('http://127.0.0.1:8000/api/verify-otp');
+  final response = await http.post(
+    url,
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({
+      'otp': otp,
+      'email': email,
+      'name': name,
+      'password': password,
+    }),
+  );
+
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    return {'success': true, 'user': data['user'], 'token': data['token']};
+  } else {
+    final errorData = jsonDecode(response.body);
+    return {
+      'success': false,
+      'message': errorData['message'] ?? 'Verification failed',
+    };
+  }
+}
+
+  /// Resend OTP API call
+  Future<void> resendOtp() async {
+    try {
+      final url = Uri.parse('http://127.0.0.1:8000/api/resend-otp');
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': widget.email}),
+      );
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('OTP resent successfully')),
+        );
+      } else {
+        final errorData = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorData['message'] ?? 'Failed to resend OTP')),
+        );
       }
-      // Focus back to first field
-      _focusNodes[0].requestFocus();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('An error occurred. Please try again.')),
+      );
+    }
+  }
+
+  /// Validate and send OTP
+  void _verifyOTP() async {
+    String otp = _otpControllers.map((controller) => controller.text).join();
+
+    if (otp.length < 6) {
+      setState(() {
+        _errorMessage = 'Please enter all 6 digits';
+      });
       return;
     }
 
-    // Clear error message if verification is successful
-    setState(() {
-      _errorMessage = null;
-    });
+    try {
+      final response = await verifyOtp(widget.email, otp, widget.name, widget.password);
 
-    // If OTP is correct, navigate to home
-    Navigator.pushReplacementNamed(context, '/login');
+      if (response['success']) {
+        setState(() {
+          _errorMessage = null;
+        });
+
+        // Save token and navigate to home screen
+        saveToken(response['token']);
+        Navigator.pushReplacementNamed(context, '/login', arguments: response['user']);
+      } else {
+        setState(() {
+          _errorMessage = response['message'];
+        });
+        for (var controller in _otpControllers) {
+          controller.clear();
+        }
+        _focusNodes[0].requestFocus();
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'An error occurred. Please try again.';
+      });
+    }
   }
 
   @override
@@ -127,7 +190,7 @@ class _OTPPageState extends State<OTPPage> {
                                     ),
                                   ),
                                   Text(
-                                    'Enter the code sent to your Email',
+                                    'Enter the code sent to ${widget.email}',
                                     style: GoogleFonts.outfit(
                                       fontWeight: FontWeight.w300,
                                       fontSize: 14,
@@ -142,7 +205,8 @@ class _OTPPageState extends State<OTPPage> {
                           // Error message display
                           if (_errorMessage != null) ...[
                             Container(
-                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 8, horizontal: 12),
                               decoration: BoxDecoration(
                                 color: Colors.red.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(8),
@@ -175,20 +239,21 @@ class _OTPPageState extends State<OTPPage> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: List.generate(
-                              4,
+                              6,
                               (index) => SizedBox(
                                 width: 50,
                                 child: TextFormField(
                                   controller: _otpControllers[index],
                                   focusNode: _focusNodes[index],
                                   style: TextStyle(
-                                  fontWeight: FontWeight.bold, // Set font weight
-                                  fontSize: 20.0, // Font size
-                                   color: Colors.white, // Text color
-                                                    ),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 20.0,
+                                    color: Colors.white,
+                                  ),
                                   decoration: InputDecoration(
                                     filled: true,
-                                    fillColor: const Color.fromARGB(255, 122, 95, 75),
+                                    fillColor:
+                                        const Color.fromARGB(255, 122, 95, 75),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(10),
                                       borderSide: BorderSide.none,
@@ -196,7 +261,6 @@ class _OTPPageState extends State<OTPPage> {
                                     counterText: '',
                                   ),
                                   onChanged: (value) {
-                                    // Clear error message when user starts typing
                                     if (_errorMessage != null) {
                                       setState(() {
                                         _errorMessage = null;
@@ -204,12 +268,8 @@ class _OTPPageState extends State<OTPPage> {
                                     }
                                     if (value.length == 1 && index < 5) {
                                       _focusNodes[index + 1].requestFocus();
-                                    }
-                                  else if (value.isEmpty && index > 0) {
+                                    } else if (value.isEmpty && index > 0) {
                                       _focusNodes[index - 1].requestFocus();
-                                    }
-                                    else if (index == 3 && value.length == 1) {
-                                      _verifyOTP();
                                     }
                                   },
                                   keyboardType: TextInputType.number,
@@ -235,26 +295,18 @@ class _OTPPageState extends State<OTPPage> {
                               ),
                               elevation: 5,
                             ),
-                            onPressed:_verifyOTP,
-                            
+                            onPressed: _verifyOTP,
                             child: Text(
                               'Continue',
-                              
                               style: GoogleFonts.outfit(
                                 fontWeight: FontWeight.w600,
                                 fontSize: 22,
                                 color: Colors.white,
-                              
-                              
                               ),
                             ),
                           ),
-                      
                           TextButton(
-                            onPressed: () {
-                              
-                              // Add resend OTP logic here
-                            },
+                            onPressed: resendOtp,
                             child: Text(
                               'Resend Code',
                               style: GoogleFonts.poppins(

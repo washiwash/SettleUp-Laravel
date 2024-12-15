@@ -2,6 +2,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:settleup/pages/otp.dart'; // Adjust the path as necessary
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -14,10 +17,31 @@ class _RegisterPageState extends State<RegisterPage> {
   // Variables remain the same
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
-  final _usernameController = TextEditingController();
+  final _nameController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  String? _usernameError;
+  //laravel
+  Future<Map<String, dynamic>> registerUser(
+      String name, String email, String password) async {
+    final url = Uri.parse('http://127.0.0.1:8000/api/register');
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'name': name, 'email': email, 'password': password}),
+    );
+
+    if (response.statusCode == 200) {
+      return {'success': true, 'message': 'Registration successful'};
+    } else {
+      final errorData = jsonDecode(response.body);
+      return {
+        'success': false,
+        'message': errorData['message'] ?? 'Registration failed'
+      };
+    }
+  }
+
+  String? nameError;
   String? _passwordError;
   String? _emailError;
   double _passwordStrength = 0;
@@ -30,11 +54,12 @@ class _RegisterPageState extends State<RegisterPage> {
     if (_wasSubmitted) {
       setState(() {
         if (value.isEmpty) {
-          _usernameError = 'Please enter your username';
+          nameError = 'Please enter your username';
         } else if (!isValidUsername(value)) {
-          _usernameError = 'Username must be 5-20 letters only & no special characters';
+          nameError =
+              'Username must be 5-20 letters only & no special characters';
         } else {
-          _usernameError = null;
+          nameError = null;
         }
       });
     }
@@ -75,9 +100,9 @@ class _RegisterPageState extends State<RegisterPage> {
     }
   }
 
-  bool isValidUsername(String username) {
-    final usernameRegex = RegExp(r'^[a-zA-Z0-9]{5,20}$');
-    return usernameRegex.hasMatch(username);
+  bool isValidUsername(String name) {
+    final nameRegex = RegExp(r'^[a-zA-Z0-9]{5,20}$');
+    return nameRegex.hasMatch(name);
   }
 
   void updatePasswordStrength(String password) {
@@ -89,20 +114,56 @@ class _RegisterPageState extends State<RegisterPage> {
       } else if (password.length < 8) {
         _passwordStrength = 0.3;
         _passwordStrengthLabel = 'Weak';
-      } else if (password.length >= 8 && !RegExp(r'[0-9!@#\$%^&*(),.?":{}|<>]').hasMatch(password)) {
+      } else if (password.length >= 8 &&
+          !RegExp(r'[0-9!@#\$%^&*(),.?":{}|<>]').hasMatch(password)) {
         _passwordStrength = 0.6;
         _passwordStrengthLabel = 'Medium';
-      } else if (password.length >= 12 && RegExp(r'\d|[!@#\$%^&*(),.?":{}|<>]').hasMatch(password)) {
+      } else if (password.length >= 12 &&
+          RegExp(r'\d|[!@#\$%^&*(),.?":{}|<>]').hasMatch(password)) {
         _passwordStrength = 1.0;
         _passwordStrengthLabel = 'Strong';
       }
     });
   }
 
+  Future<Map<String, dynamic>> register(
+      String name, String email, String password) async {
+    final url = Uri.parse('http://127.0.0.1:8000/register');
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'name': name, 'email': email, 'password': password}),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return {'success': true, 'message': data['message']};
+    } else {
+      final errorData = jsonDecode(response.body);
+      return {'success': false, 'message': errorData};
+    }
+  }
+//   Future<Map<String, dynamic>> login(String email, String password) async {
+//   final url = Uri.parse('http://127.0.0.1:8000/login'); // Replace with your Laravel API URL
+//   final response = await http.post(
+//     url,
+//     headers: {'Content-Type': 'application/json'},
+//     body: jsonEncode({'email': email, 'password': password}),
+//   );
+
+//   if (response.statusCode == 200) {
+//     final data = jsonDecode(response.body);
+//     if (data['success'] == true) {
+//       return {'success': true, 'token': data['token'], 'user': data['user']};
+//     }
+//   }
+//   return {'success': false, 'message': 'Invalid login credentials'};
+// }
+
   @override
   void dispose() {
     _emailController.dispose();
-    _usernameController.dispose();
+    _nameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -123,7 +184,7 @@ class _RegisterPageState extends State<RegisterPage> {
         final double fieldWidth = constraints.maxWidth;
         final double fontSize = fieldWidth < 400 ? 14 : 16;
         final double labelSize = fieldWidth < 400 ? 16 : 20;
-        
+
         return SizedBox(
           width: fieldWidth,
           child: TextFormField(
@@ -165,7 +226,6 @@ class _RegisterPageState extends State<RegisterPage> {
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
     final isSmallScreen = screenSize.width < 600;
-  
 
     // Responsive dimensions
     final double logoWidth = screenSize.width * (isSmallScreen ? 0.4 : 0.3);
@@ -184,7 +244,8 @@ class _RegisterPageState extends State<RegisterPage> {
               builder: (context, constraints) {
                 return SingleChildScrollView(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                    padding:
+                        EdgeInsets.symmetric(horizontal: horizontalPadding),
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
                         minHeight: constraints.maxHeight,
@@ -206,13 +267,13 @@ class _RegisterPageState extends State<RegisterPage> {
                               ),
                               Image.asset(
                                 'assets/door.png',
-                                 width: doorWidth * 1.2,
+                                width: doorWidth * 1.2,
                                 height: doorHeight * 1.45,
                                 fit: BoxFit.contain,
                               ),
                             ],
                           ),
-                          
+
                           // Form section
                           Form(
                             key: _formKey,
@@ -228,10 +289,10 @@ class _RegisterPageState extends State<RegisterPage> {
                                 ),
                                 SizedBox(height: verticalSpacing),
                                 _buildInputField(
-                                  controller: _usernameController,
+                                  controller: _nameController,
                                   label: 'Username',
                                   icon: Icons.person,
-                                  errorText: _usernameError,
+                                  errorText: nameError,
                                   maxLength: 20,
                                   onChanged: validateUsername,
                                 ),
@@ -254,11 +315,13 @@ class _RegisterPageState extends State<RegisterPage> {
                                       return SizedBox(
                                         width: constraints.maxWidth * 0.8,
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             LinearProgressIndicator(
                                               value: _passwordStrength,
-                                              backgroundColor: Colors.red.shade100,
+                                              backgroundColor:
+                                                  Colors.red.shade100,
                                               color: _passwordStrength == 1.0
                                                   ? Colors.green
                                                   : (_passwordStrength == 0.6
@@ -269,7 +332,8 @@ class _RegisterPageState extends State<RegisterPage> {
                                             Text(
                                               _passwordStrengthLabel,
                                               style: TextStyle(
-                                                fontSize: isSmallScreen ? 12 : 14,
+                                                fontSize:
+                                                    isSmallScreen ? 12 : 14,
                                                 color: _passwordStrength == 1.0
                                                     ? Colors.green
                                                     : (_passwordStrength == 0.6
@@ -286,9 +350,9 @@ class _RegisterPageState extends State<RegisterPage> {
                               ],
                             ),
                           ),
-                          
+
                           SizedBox(height: verticalSpacing * 1),
-                          
+
                           // Buttons section with responsive sizing
                           Column(
                             children: [
@@ -305,16 +369,40 @@ class _RegisterPageState extends State<RegisterPage> {
                                   foregroundColor: Colors.black,
                                 ),
                                 child: Text('Confirm'),
-                                onPressed: () {
+                                onPressed: () async {
                                   setState(() {
                                     _wasSubmitted = true;
                                   });
                                   validateEmail(_emailController.text);
-                                  validateUsername(_usernameController.text);
+                                  validateUsername(_nameController.text);
                                   validatePassword(_passwordController.text);
-                                  
-                                  if (_usernameError == null && _passwordError == null && _emailError == null) {
-                                    Navigator.pushNamed(context, '/otp');
+
+                                  if (nameError == null &&
+                                      _passwordError == null &&
+                                      _emailError == null) {
+                                    final response = await registerUser(
+                                      _nameController.text,
+                                      _emailController.text,
+                                      _passwordController.text,
+                                    );
+                                    if (response['success']) {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => OTPPage(
+                                            email: _emailController.text,
+                                            name: _nameController.text,
+                                            password: _passwordController.text,
+                                          ),
+                                        ),
+                                      );
+                                    } else {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                            content: Text(response['message'])),
+                                      );
+                                    }
                                   }
                                 },
                               ),

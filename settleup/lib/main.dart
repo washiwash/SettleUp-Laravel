@@ -24,7 +24,7 @@ class MyApp extends StatelessWidget {
         '/': (context) => const IntroPage(),
         '/register': (context) => const RegisterPage(),
         '/login': (context) => const LoginPage(),
-        '/otp': (context) => const OTPPage(),
+        '/otp': (context) => const OTPPage(email: '', name: '', password: ''), // Provide the required 'email', 'name', and 'password' arguments
         '/notification': (context) => const NotificationPage(),
         '/settings': (context) => SettingsPage(),
       },
