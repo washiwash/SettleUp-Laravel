@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:settleup/pages/home.dart';
 import 'package:settleup/pages/notification.dart';
-import 'package:settleup/pages/home.dart'; // Import the HomePage class
-import 'package:settleup/pages/wallet.dart'; // Import the WalletPage class
+import 'package:settleup/pages/wallet.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class SettingsPage extends StatefulWidget {
   @override
@@ -10,9 +13,63 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  int _currentIndex = 3; // Set the default index for the settings page
-  String username = "Melchi"; // Replace with the actual username
-  String email = "Melchi@example.com"; // Replace with the actual email
+  int _currentIndex = 3; // Default index for settings page
+  String userId = '';
+  String username = '';
+  String email = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserInfo();
+    _fetchUserDetails();
+  }
+
+  Future<void> _loadUserInfo() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      userId = prefs.getString('user_id') ?? 'Unknown ID';
+      username = prefs.getString('username') ?? 'Unknown User';
+      email = prefs.getString('email') ?? 'Unknown Email';
+    });
+  }
+  Future<void> _fetchUserDetails() async {
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString('auth_token') ?? '';
+
+  final url = Uri.parse('http://127.0.0.1:8000/api/user-details');
+
+  try {
+    final response = await http.get(
+      url,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final userData = json.decode(response.body);
+      setState(() {
+        userId = userData['id'].toString();
+        username = userData['name'];
+        email = userData['email'];
+      });
+    } else {
+      print("Failed to fetch user details: ${response.body}");
+    }
+  } catch (e) {
+    print("Error fetching user details: $e");
+  }
+}
+
+
+  Future<void> _logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear(); // Clear all saved user data
+
+    Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +95,7 @@ class _SettingsPageState extends State<SettingsPage> {
             child: _buildResponsiveBottomBar(context, screenWidth),
           ),
 
-          // Settings List at the bottom
+          // Settings List
           Positioned(
             bottom: 96, // Height of bottom navigation bar
             left: 0,
@@ -47,7 +104,7 @@ class _SettingsPageState extends State<SettingsPage> {
               padding: getResponsivePadding(),
               child: ListView(
                 shrinkWrap: true,
-                physics: NeverScrollableScrollPhysics(),
+                physics: const NeverScrollableScrollPhysics(),
                 children: <Widget>[
                   _buildSettingsTile(
                     icon: Icons.account_circle,
@@ -56,7 +113,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       _showCustomDialog(
                         context,
                         title: 'Account Settings',
-                        content: 'Username: $username\nEmail: $email',
+                        content: 'User ID: $userId\nUsername: $username\nEmail: $email',
                       );
                     },
                   ),
@@ -67,9 +124,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       _showCustomDialog(
                         context,
                         title: 'Help & Support',
-                        content:   'If you have any questions or need help, please contact us at settleUp@gmail.com',
+                        content: 'If you have any questions, contact us at settleUp@gmail.com',
                       );
-                        // Use dynamic user data
                     },
                   ),
                   _buildSettingsTile(
@@ -79,11 +135,14 @@ class _SettingsPageState extends State<SettingsPage> {
                       _showCustomDialog(
                         context,
                         title: 'About',
-                        content: ' SettleUp is a convenient app designed to help you keep track of your debts and remind you of any outstanding balances. Whether you owe money to friends or need to collect payments, SettleUp ensures you never forget a debt again.',
-                       
-
+                        content: 'SettleUp helps track debts and reminds you of balances.',
                       );
                     },
+                  ),
+                  _buildSettingsTile(
+                    icon: Icons.logout,
+                    title: 'Logout',
+                    onTap: _logout,
                   ),
                 ],
               ),
@@ -124,79 +183,77 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  void _showCustomDialog(BuildContext context,
-    {required String title, required String content}) {
-  showDialog(
-    context: context,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        contentPadding: const EdgeInsets.all(20),
-        title: Row(
-          children: [
-            Icon(
-              Icons.info_outline,
-              color: const Color(0xFF582F0E),
-              size: 30,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                title,
+  void _showCustomDialog(BuildContext context, {required String title, required String content}) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          contentPadding: const EdgeInsets.all(20),
+          title: Row(
+            children: [
+              Icon(
+                Icons.info_outline,
+                color: const Color(0xFF582F0E),
+                size: 30,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: GoogleFonts.poppins(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF582F0E),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              Text(
+                content,
+                textAlign: TextAlign.center,
                 style: GoogleFonts.poppins(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF582F0E),
+                  fontSize: 16,
+                  color: Colors.black87,
                 ),
               ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 10),
-            Text(
-              content,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.poppins(
-                fontSize: 16,
-                color: Colors.black87,
+              const SizedBox(height: 20),
+              Divider(
+                color: Colors.grey[300],
+                thickness: 1,
               ),
-            ),
-            const SizedBox(height: 20),
-            Divider(
-              color: Colors.grey[300],
-              thickness: 1,
-            ),
-            const SizedBox(height: 10),
-            ElevatedButton.icon(
-              onPressed: () => Navigator.of(context).pop(),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF582F0E),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+              const SizedBox(height: 10),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.of(context).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF582F0E),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.close, color: Colors.white),
+                label: Text(
+                  'Close',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
-              icon: const Icon(Icons.close, color: Colors.white),
-              label: Text(
-                'Close',
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
-
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   Widget _buildResponsiveBottomBar(BuildContext context, double screenWidth) {
     return Container(

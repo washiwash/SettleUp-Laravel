@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import 'package:settleup/pages/notification.dart'; 
+import 'package:settleup/pages/notification.dart';
 import 'package:settleup/pages/setting.dart';
 import 'package:settleup/pages/wallet.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 class HomePage extends StatefulWidget {
   final List<Map<String, dynamic>> receiveList;
@@ -22,15 +25,101 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   late List<Map<String, dynamic>> receiveList;
   late List<Map<String, dynamic>> payList;
+  bool isLoading = false;
   int _currentIndex = 0;
-  
+  Map<String, dynamic>? userDetails;
+  late String token;
 
   @override
   void initState() {
     super.initState();
     receiveList = List<Map<String, dynamic>>.from(widget.receiveList);
     payList = List<Map<String, dynamic>>.from(widget.payList);
+    _fetchUserDetails();
+    _loadToken();
   }
+
+  Future<void> _loadToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      token = prefs.getString('auth_token') ?? '';
+    });
+  }
+
+  Future<void> _fetchUserDetails() async {
+    final url =
+        Uri.parse('http://127.0.0.1:8000/api/user-details'); // API endpoint
+
+    try {
+      // Retrieve the token from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+
+      if (token == null) {
+        print("Auth token not found");
+        return; // Exit if no token is found
+      }
+
+      // Make the API call
+      final response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token', // Use the retrieved token
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          userDetails =
+              json.decode(response.body); // Parse and store user details
+        });
+      } else {
+        print("Failed to fetch user details: ${response.body}");
+      }
+    } catch (e) {
+      print("Error fetching user details: $e");
+    }
+  }
+
+ Future<void> _fetchDebtors() async {
+  setState(() {
+    isLoading = true;
+  });
+
+  final url = Uri.parse('http://127.0.0.1:8000/api/receivables');
+
+  try {
+    if (token.isEmpty) {
+      print("Auth token is missing");
+      return;
+    }
+
+    final response = await http.get(
+      url,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body) as List;
+      setState(() {
+        receiveList = data.map((item) => Map<String, dynamic>.from(item)).toList();
+      });
+    } else {
+      print("Failed to fetch debtors: ${response.body}");
+    }
+  } catch (e) {
+    print("Error fetching debtors: $e");
+  } finally {
+    setState(() {
+      isLoading = false;
+    });
+  }
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +149,7 @@ class _HomePageState extends State<HomePage> {
                 style: GoogleFonts.poppins(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                    color: Colors.black,
+                  color: Colors.black,
                 ),
               ),
               const SizedBox(height: 10),
@@ -98,7 +187,8 @@ class _HomePageState extends State<HomePage> {
       return dueDate != null && dueDate.isAfter(now);
     }).fold<double>(
       0,
-      (sum, item) => sum + (double.tryParse(item['amount']?.toString() ?? '0') ?? 0.0),
+      (sum, item) =>
+          sum + (double.tryParse(item['amount']?.toString() ?? '0') ?? 0.0),
     );
   }
 
@@ -107,14 +197,13 @@ class _HomePageState extends State<HomePage> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
-          'SettleUP',
+          'Welcome back, ${userDetails?['name'] ?? 'User'}!',
           style: GoogleFonts.poppins(
             fontSize: 22,
             fontWeight: FontWeight.bold,
             color: Colors.black,
           ),
         ),
-      
       ],
     );
   }
@@ -284,58 +373,68 @@ class _HomePageState extends State<HomePage> {
           );
   }
 
- Widget _buildBottomNavigationBar(BuildContext context) {
-  return Container(
-    width: MediaQuery.of(context).size.width,
-    height: MediaQuery.of(context).size.height * 0.1,
-    decoration: const BoxDecoration(
-      borderRadius: BorderRadius.only(
-        topLeft: Radius.circular(40),
-        topRight: Radius.circular(40),
+  Widget _buildBottomNavigationBar(BuildContext context) {
+    return Container(
+      width: MediaQuery.of(context).size.width,
+      height: MediaQuery.of(context).size.height * 0.1,
+      decoration: const BoxDecoration(
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(40),
+          topRight: Radius.circular(40),
+        ),
+        color: Colors.white,
       ),
-      color: Colors.white,
-    ),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _buildNavBarIcon(Icons.home, 0, '/home', HomePage(receiveList: receiveList, payList: payList)),
-        _buildNavBarIcon(Icons.wallet, 1, '/wallet', WalletPage()),
-        const SizedBox(width: 40), // Placeholder for the FAB
-        _buildNavBarIcon(Icons.notifications, 2, '/notification', NotificationPage()),
-        _buildNavBarIcon(Icons.settings, 3, '/settings', SettingsPage()),
-      ],
-    ),
-  );
-}
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildNavBarIcon(Icons.home, 0, '/home',
+              HomePage(receiveList: receiveList, payList: payList)),
+          _buildNavBarIcon(
+              Icons.wallet, 1, '/wallet', WalletPage(receiveList: receiveList)),
 
-Widget _buildNavBarIcon(IconData icon, int index, String route, Widget page) {
+          const SizedBox(width: 40), // Placeholder for the FAB
+          _buildNavBarIcon(
+              Icons.notifications, 2, '/notification', NotificationPage()),
+          _buildNavBarIcon(Icons.settings, 3, '/settings', SettingsPage()),
+        ],
+      ),
+    );
+  }
+
+ Widget _buildNavBarIcon(IconData icon, int index, String route, Widget page) {
   return IconButton(
-    icon: Icon(
-      icon,
-      size: 40,
-      color: _currentIndex == index ? const Color(0XFF493628) : Colors.grey,
-    ),
-    onPressed: () {
+    icon: isLoading && index == 1
+        ? CircularProgressIndicator()
+        : Icon(
+            icon,
+            size: 40,
+            color: _currentIndex == index ? const Color(0XFF493628) : Colors.grey,
+          ),
+    onPressed: () async {
       if (_currentIndex != index) {
         setState(() => _currentIndex = index);
 
-        // Navigate with fade transition
+        if (index == 1) { // Wallet button is pressed
+          await _fetchDebtors(); // Fetch the debtor data
+        }
+
         Navigator.of(context).push(_createFadePageRoute(page));
       }
     },
   );
 }
 
-PageRouteBuilder _createFadePageRoute(Widget page) {
-  return PageRouteBuilder(
-    pageBuilder: (context, animation, secondaryAnimation) => page,
-    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-      return FadeTransition(
-        opacity: animation,
-        child: child,
-      );
-    },
-    transitionDuration: const Duration(milliseconds: 150),
-  );
-}
+
+  PageRouteBuilder _createFadePageRoute(Widget page) {
+    return PageRouteBuilder(
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(
+          opacity: animation,
+          child: child,
+        );
+      },
+      transitionDuration: const Duration(milliseconds: 150),
+    );
+  }
 }
